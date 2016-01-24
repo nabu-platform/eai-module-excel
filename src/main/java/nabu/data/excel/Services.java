@@ -1,4 +1,4 @@
-package nabu.utils;
+package nabu.data.excel;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -10,6 +10,7 @@ import javax.jws.WebResult;
 import javax.jws.WebService;
 import javax.validation.constraints.NotNull;
 
+import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 
 import be.nabu.libs.services.api.ExecutionContext;
@@ -23,7 +24,7 @@ import be.nabu.utils.excel.FileType;
 import be.nabu.utils.excel.MatrixUtils;
 
 @WebService
-public class Excel {
+public class Services {
 	
 	private ExecutionContext executionContext;
 	
@@ -50,7 +51,11 @@ public class Excel {
 			throw new IllegalArgumentException("The resolved type is not complex: " + typeId);
 		}
 		ExcelParser excelParser = new ExcelParser(workbook);
-		Object[][] parsed = excelParser.parse(excelParser.getSheet(sheetName, useRegex));
+		Sheet sheet = excelParser.getSheet(sheetName, useRegex == null ? false : useRegex);
+		if (sheet == null) {
+			throw new IllegalArgumentException("Can not find sheet: " + sheetName);
+		}
+		Object[][] parsed = excelParser.parse(sheet);
 		if (rotate != null && rotate) {
 			parsed = MatrixUtils.rotate(parsed);
 		}
