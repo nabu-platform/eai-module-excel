@@ -43,12 +43,6 @@
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
-			<groupId>nabu</groupId>
-			<artifactId>eai-module-http</artifactId>
-			<version>1.0-SNAPSHOT</version>
-			<scope>provided</scope>
-		</dependency>
-		<dependency>
 			<groupId>be.nabu.utils</groupId>
 			<artifactId>utils-excel</artifactId>
 			<version>1.0-SNAPSHOT</version>
@@ -87,7 +81,7 @@
 			<uniqueVersion>false</uniqueVersion>
 			<id>nabu</id>
 			<name>Nabu Maven Repository</name>
-			<url>http://localhost:5555</url>
+			<url>http://localhost:5555/maven</url>
 			<layout>default</layout>
 		</repository>
 	</distributionManagement>
