@@ -132,7 +132,19 @@ public class Services {
 						break;
 					}
 					Element<?> element = children.get(elementCounter++);
-					newInstance.set(element.getName(), matrix.get(row).get(column));
+					try {
+						Object value = matrix.get(row).get(column);
+						if (value instanceof String) {
+							value = ((String) value).trim();
+							if (((String) value).isEmpty()) {
+								value = null;
+							}
+						}
+						newInstance.set(element.getName(), value);
+					}
+					catch (Exception e) {
+						throw new IllegalArgumentException("Could not set field: " + element.getName(), e);
+					}
 					if (isEmptyRow && matrix.get(row).get(column) != null) {
 						isEmptyRow = false;
 					}
