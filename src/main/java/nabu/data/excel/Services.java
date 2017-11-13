@@ -1,5 +1,7 @@
 package nabu.data.excel;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.text.ParseException;
@@ -17,11 +19,13 @@ import org.apache.poi.ss.usermodel.Workbook;
 import be.nabu.eai.repository.EAIResourceRepository;
 import be.nabu.libs.property.api.Value;
 import be.nabu.libs.services.api.ExecutionContext;
+import be.nabu.libs.types.ComplexContentWrapperFactory;
 import be.nabu.libs.types.TypeUtils;
 import be.nabu.libs.types.api.ComplexContent;
 import be.nabu.libs.types.api.ComplexType;
 import be.nabu.libs.types.api.DefinedType;
 import be.nabu.libs.types.api.Element;
+import be.nabu.libs.types.binding.excel.ExcelBinding;
 import be.nabu.libs.types.properties.AliasProperty;
 import be.nabu.utils.excel.ExcelParser;
 import be.nabu.utils.excel.FileType;
@@ -58,6 +62,27 @@ public class Services {
 			newInstance.set(child.getName(), toObject(typeId, workbook, sheetName, true, null, null, null, rotate, includeEmptyResults, useHeaders, validateHeaders));
 		}
 		return newInstance;
+	}
+	
+	@SuppressWarnings("unchecked")
+	@WebResult(name = "marshalled")
+	public InputStream marshal(@WebParam(name = "data") Object data, @WebParam(name = "excelType") FileType type, @WebParam(name = "useHeaders") Boolean useHeaders) throws IOException, ParseException {
+		if (data == null) {
+			return null;
+		}
+		ExcelBinding binding = new ExcelBinding();
+		if (useHeaders != null) {
+			binding.setUseHeader(useHeaders);
+		}
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		if (!(data instanceof ComplexContent)) {
+			data = ComplexContentWrapperFactory.getInstance().getWrapper().wrap(data);
+			if (data == null) {
+				throw new RuntimeException("Can not wrap data as complex content");
+			}
+		}
+		binding.marshal(output, (ComplexContent) data);
+		return new ByteArrayInputStream(output.toByteArray());
 	}
 	
 	@SuppressWarnings("resource")
