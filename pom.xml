@@ -63,6 +63,11 @@
 			<artifactId>types-java</artifactId>
 			<scope>provided</scope>
 		</dependency>
+		<dependency>
+			<groupId>nabu</groupId>
+			<artifactId>eai-module-rest</artifactId>
+			<scope>provided</scope>
+		</dependency>
 		
 		<!-- Explicitly include them as they do _not_ contain maven metadata so the scanner will not find the libraries unless explicitly listed here -->
 		<dependency>
