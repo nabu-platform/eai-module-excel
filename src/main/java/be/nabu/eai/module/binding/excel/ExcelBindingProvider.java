@@ -34,7 +34,7 @@ public class ExcelBindingProvider implements BindingProvider {
 
 	@Override
 	public String getContentType(MarshallableBinding binding) {
-		return "text/csv";
+		return binding instanceof ExcelBinding ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : null;
 	}
 
 }

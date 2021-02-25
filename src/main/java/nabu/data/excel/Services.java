@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.jws.WebParam;
 import javax.jws.WebResult;
@@ -30,6 +32,8 @@ import be.nabu.libs.types.properties.AliasProperty;
 import be.nabu.utils.excel.ExcelParser;
 import be.nabu.utils.excel.FileType;
 import be.nabu.utils.excel.MatrixUtils;
+import be.nabu.utils.excel.Template;
+import be.nabu.utils.excel.Template.Direction;
 
 @WebService
 public class Services {
@@ -46,6 +50,43 @@ public class Services {
 	@WebResult(name = "sheets")
 	public List<String> sheets(@NotNull @WebParam(name = "workbook") Workbook workbook, @WebParam(name = "includeHidden") Boolean includeHidden) {
 		return new ExcelParser(workbook).getSheetNames(includeHidden != null && includeHidden);
+	}
+	
+	@SuppressWarnings("unchecked")
+	@WebResult(name = "stream")
+	public InputStream template(@WebParam(name = "stream") @NotNull InputStream stream, 
+				@WebParam(name = "properties") Object variables, 
+				@WebParam(name = "duplicateAll") Boolean duplicateAll, 
+				@WebParam(name = "removeNonExistent") Boolean removeNonExistent,
+				@WebParam(name = "direction") Direction direction, 
+				@WebParam(name = "fileType") FileType fileType) throws IOException {
+		
+		if (fileType == null) {
+			fileType = FileType.XLSX;
+		}
+		ExcelParser parser = new ExcelParser(stream, fileType, null);
+		ByteArrayOutputStream target = new ByteArrayOutputStream();
+		Map<String, Object> input = new HashMap<String, Object>();
+		if (variables != null) {
+			if (!(variables instanceof ComplexContent)) {
+				variables = ComplexContentWrapperFactory.getInstance().getWrapper().wrap(variables);
+			}
+			if (variables != null) {
+				for (Element<?> child : TypeUtils.getAllChildren(((ComplexContent) variables).getType())) {
+					input.put(child.getName(), ((ComplexContent) variables).get(child.getName()));
+				}
+			}
+		}
+		Template.substitute(
+			parser.getWorkbook(), 
+			target, 
+			input, 
+			duplicateAll != null && duplicateAll, 
+			direction == null ? Direction.VERTICAL : direction, 
+			removeNonExistent != null && removeNonExistent
+		);
+		target.flush();
+		return new ByteArrayInputStream(target.toByteArray());
 	}
 	
 	@WebResult(name = "unmarshalled")
