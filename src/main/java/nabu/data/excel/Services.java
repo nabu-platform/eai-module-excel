@@ -100,7 +100,7 @@ public class Services {
 			if (sheetName.equals("*")) {
 				sheetName = ".*";
 			}
-			newInstance.set(child.getName(), toObject(typeId, workbook, sheetName, true, null, null, null, rotate, includeEmptyResults, useHeaders, validateHeaders));
+			newInstance.set(child.getName(), toObject(typeId, workbook, sheetName, true, null, null, null, rotate, includeEmptyResults, useHeaders, validateHeaders, true));
 		}
 		return newInstance;
 	}
@@ -128,7 +128,11 @@ public class Services {
 	
 	@SuppressWarnings("resource")
 	@WebResult(name = "results")
-	public List<Object> toObject(@NotNull @WebParam(name = "typeId") String typeId, @WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "useRegexForSheet") Boolean useRegex, @WebParam(name = "fromRow") Integer fromRow, @WebParam(name = "toRow") Integer toRow, @WebParam(name = "columnsToIgnore") List<Integer> columnsToIgnore, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders) throws IOException, ParseException {
+	public List<Object> toObject(@NotNull @WebParam(name = "typeId") String typeId, @WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "useRegexForSheet") Boolean useRegex, @WebParam(name = "fromRow") Integer fromRow, @WebParam(name = "toRow") Integer toRow, @WebParam(name = "columnsToIgnore") List<Integer> columnsToIgnore, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders, @WebParam(name = "trim") Boolean trim) throws IOException, ParseException {
+		// for backwards compatibility we trim by default
+		if (trim == null) {
+			trim = true;
+		}
 		DefinedType resolved = executionContext.getServiceContext().getResolver(DefinedType.class).resolve(typeId);
 		if (resolved == null) {
 			throw new IllegalArgumentException("Could not find the type: " + typeId);
@@ -201,8 +205,15 @@ public class Services {
 					try {
 						Object value = matrix.get(row).get(column);
 						if (value instanceof String) {
-							value = ((String) value).trim();
-							if (((String) value).isEmpty()) {
+							// if we want to trim, we will save the trimmed version
+							if (trim) {
+								value = ((String) value).trim();
+								if (((String) value).isEmpty()) {
+									value = null;
+								}
+							}
+							// otherwise we won't
+							else if (((String) value).trim().isEmpty()) {
 								value = null;
 							}
 						}
