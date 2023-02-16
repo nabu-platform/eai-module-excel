@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import javax.jws.WebParam;
 import javax.jws.WebResult;
@@ -107,7 +108,7 @@ public class Services {
 	
 	@SuppressWarnings("unchecked")
 	@WebResult(name = "marshalled")
-	public InputStream marshal(@WebParam(name = "data") Object data, @WebParam(name = "excelType") FileType type, @WebParam(name = "useHeaders") Boolean useHeaders) throws IOException, ParseException {
+	public InputStream marshal(@WebParam(name = "data") Object data, @WebParam(name = "excelType") FileType type, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "timezone") TimeZone timezone) throws IOException, ParseException {
 		if (data == null) {
 			return null;
 		}
@@ -122,6 +123,7 @@ public class Services {
 				throw new RuntimeException("Can not wrap data as complex content");
 			}
 		}
+		binding.setTimezone(timezone);
 		binding.marshal(output, (ComplexContent) data);
 		return new ByteArrayInputStream(output.toByteArray());
 	}
