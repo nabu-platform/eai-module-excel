@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -16,20 +18,34 @@ import javax.jws.WebResult;
 import javax.jws.WebService;
 import javax.validation.constraints.NotNull;
 
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellValue;
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.FormulaEvaluator;
+import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.util.CellRangeAddress;
 
+import be.nabu.eai.api.NamingConvention;
 import be.nabu.eai.repository.EAIResourceRepository;
 import be.nabu.libs.property.api.Value;
 import be.nabu.libs.services.api.ExecutionContext;
 import be.nabu.libs.types.ComplexContentWrapperFactory;
+import be.nabu.libs.types.SimpleTypeWrapperFactory;
 import be.nabu.libs.types.TypeUtils;
 import be.nabu.libs.types.api.ComplexContent;
 import be.nabu.libs.types.api.ComplexType;
 import be.nabu.libs.types.api.DefinedType;
 import be.nabu.libs.types.api.Element;
+import be.nabu.libs.types.base.ComplexElementImpl;
+import be.nabu.libs.types.base.SimpleElementImpl;
+import be.nabu.libs.types.base.ValueImpl;
 import be.nabu.libs.types.binding.excel.ExcelBinding;
 import be.nabu.libs.types.properties.AliasProperty;
+import be.nabu.libs.types.properties.LabelProperty;
+import be.nabu.libs.types.properties.MaxOccursProperty;
+import be.nabu.libs.types.structure.Structure;
 import be.nabu.utils.excel.ExcelParser;
 import be.nabu.utils.excel.FileType;
 import be.nabu.utils.excel.MatrixUtils;
@@ -90,18 +106,79 @@ public class Services {
 		return new ByteArrayInputStream(target.toByteArray());
 	}
 	
+	@SuppressWarnings({ "unchecked", "rawtypes" })
 	@WebResult(name = "unmarshalled")
-	public Object unmarshal(@WebParam(name = "input") @NotNull InputStream input, @WebParam(name = "excelType") FileType type, @NotNull @WebParam(name = "type") String typeId, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders) throws IOException, ParseException {
+	public Object unmarshal(@WebParam(name = "input") @NotNull InputStream input, @WebParam(name = "excelType") FileType type, @WebParam(name = "type") String typeId, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders) throws IOException, ParseException {
 		Workbook workbook = parse(input, type, null);
-		ComplexType resolve = (ComplexType) EAIResourceRepository.getInstance().resolve(typeId);
+		ComplexType resolve;
+		int headerRowIndex = 0;
+		int contentRowIndex = headerRowIndex + 1;
+		List<Integer> contentRowIndexes = new ArrayList<Integer>();
+		if (typeId != null) {
+			resolve = (ComplexType) EAIResourceRepository.getInstance().resolve(typeId);
+		}
+		else {
+			ExcelParser excelParser = new ExcelParser(workbook);
+			Structure dynamic = new Structure();
+			FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+			for (String sheetName : excelParser.getSheetNames(false)) {
+				Structure sheetType = new Structure();
+				Sheet sheet = excelParser.getSheet(sheetName, false);
+				if (sheet.getNumMergedRegions() > 0) {
+					// check for merged headers in the beginning
+					for (CellRangeAddress address : sheet.getMergedRegions()) {
+						if (address.getFirstRow() <= headerRowIndex) {
+							headerRowIndex = address.getLastRow() + 1;
+						}
+					}
+				}
+				contentRowIndex = headerRowIndex + 1;
+				contentRowIndexes.add(contentRowIndex);
+				// for naming
+				Row headerRow = sheet.getRow(headerRowIndex);
+				// for content type
+				Row contentRow = sheet.getRow(contentRowIndex);
+				for (int i = 0; i < headerRow.getLastCellNum(); i++) {
+					Cell cell = headerRow.getCell(i);
+					CellValue cellValue = evaluator.evaluate(cell);
+					String cellName = cellValue.getStringValue();
+					if (cellName == null || cellName.trim().isEmpty()) {
+						break;
+					}
+					Class<?> simpleType = String.class;
+					cell = contentRow.getCell(i);
+					cellValue = evaluator.evaluate(cell);
+					switch(cellValue.getCellType()) {
+						case Cell.CELL_TYPE_BOOLEAN:
+							simpleType = Boolean.class;
+						break;
+						case Cell.CELL_TYPE_NUMERIC:
+							if (DateUtil.isCellInternalDateFormatted(cell) || DateUtil.isCellDateFormatted(cell)) {
+								simpleType = Date.class;
+							}
+							else {
+								simpleType = Double.class;
+							}
+						break;
+					}
+					sheetType.add(new SimpleElementImpl(NamingConvention.LOWER_CAMEL_CASE.apply(cellName), SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(simpleType), sheetType));
+				}
+				dynamic.add(new ComplexElementImpl(NamingConvention.LOWER_CAMEL_CASE.apply(sheetName), sheetType, dynamic, new ValueImpl<String>(LabelProperty.getInstance(), sheetName), new ValueImpl<Integer>(MaxOccursProperty.getInstance(), 0)));
+			}
+			resolve = dynamic;
+		}
+		Iterator<Integer> iterator = contentRowIndexes.iterator();
 		ComplexContent newInstance = resolve.newInstance();
 		for (Element<?> child : TypeUtils.getAllChildren(resolve)) {
-			Value<String> property = child.getProperty(AliasProperty.getInstance());
-			String sheetName = property == null ? child.getName() : property.getValue();
+			Value<String> labelProperty = child.getProperty(LabelProperty.getInstance());
+			// deprecated!
+			Value<String> aliasProperty = child.getProperty(AliasProperty.getInstance());
+			String sheetName = labelProperty == null ? (aliasProperty == null ? child.getName() : aliasProperty.getValue()) : labelProperty.getValue();
 			if (sheetName.equals("*")) {
 				sheetName = ".*";
 			}
-			newInstance.set(child.getName(), toObject(typeId, workbook, sheetName, true, null, null, null, rotate, includeEmptyResults, useHeaders, validateHeaders, true));
+			// only use regex for sheet if we are not working with a dynamic type
+			newInstance.set(child.getName(), toObject((ComplexType) child.getType(), workbook, sheetName, typeId != null, iterator.hasNext() ? iterator.next() : null, null, null, rotate, includeEmptyResults, useHeaders, validateHeaders, true));
 		}
 		return newInstance;
 	}
@@ -128,19 +205,16 @@ public class Services {
 		return new ByteArrayInputStream(output.toByteArray());
 	}
 	
-	@SuppressWarnings("resource")
 	@WebResult(name = "results")
 	public List<Object> toObject(@NotNull @WebParam(name = "typeId") String typeId, @WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "useRegexForSheet") Boolean useRegex, @WebParam(name = "fromRow") Integer fromRow, @WebParam(name = "toRow") Integer toRow, @WebParam(name = "columnsToIgnore") List<Integer> columnsToIgnore, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders, @WebParam(name = "trim") Boolean trim) throws IOException, ParseException {
+		DefinedType resolved = executionContext.getServiceContext().getResolver(DefinedType.class).resolve(typeId);
+		return toObject((ComplexType) resolved, workbook, sheetName, useRegex, fromRow, toRow, columnsToIgnore, rotate, includeEmptyResults, useHeaders, validateHeaders, trim);
+	}
+	
+	private List<Object> toObject(ComplexType resolved, @WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "useRegexForSheet") Boolean useRegex, @WebParam(name = "fromRow") Integer fromRow, @WebParam(name = "toRow") Integer toRow, @WebParam(name = "columnsToIgnore") List<Integer> columnsToIgnore, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders, @WebParam(name = "trim") Boolean trim) throws IOException, ParseException {
 		// for backwards compatibility we trim by default
 		if (trim == null) {
 			trim = true;
-		}
-		DefinedType resolved = executionContext.getServiceContext().getResolver(DefinedType.class).resolve(typeId);
-		if (resolved == null) {
-			throw new IllegalArgumentException("Could not find the type: " + typeId);
-		}
-		if (!(resolved instanceof ComplexType)) {
-			throw new IllegalArgumentException("The resolved type is not complex: " + typeId);
 		}
 		ExcelParser excelParser = new ExcelParser(workbook);
 		Sheet sheet = excelParser.getSheet(sheetName, useRegex == null ? false : useRegex);
