@@ -208,6 +208,9 @@ public class Services {
 	@WebResult(name = "results")
 	public List<Object> toObject(@NotNull @WebParam(name = "typeId") String typeId, @WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "useRegexForSheet") Boolean useRegex, @WebParam(name = "fromRow") Integer fromRow, @WebParam(name = "toRow") Integer toRow, @WebParam(name = "columnsToIgnore") List<Integer> columnsToIgnore, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders, @WebParam(name = "trim") Boolean trim) throws IOException, ParseException {
 		DefinedType resolved = executionContext.getServiceContext().getResolver(DefinedType.class).resolve(typeId);
+		if (resolved == null) {
+			throw new IllegalArgumentException("Could not resolve the complex type: " + typeId);
+		}
 		return toObject((ComplexType) resolved, workbook, sheetName, useRegex, fromRow, toRow, columnsToIgnore, rotate, includeEmptyResults, useHeaders, validateHeaders, trim);
 	}
 	
