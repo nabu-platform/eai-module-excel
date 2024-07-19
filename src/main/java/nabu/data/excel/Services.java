@@ -19,6 +19,7 @@ import javax.jws.WebService;
 import javax.validation.constraints.NotNull;
 
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.CellValue;
 import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.ss.usermodel.FormulaEvaluator;
@@ -38,6 +39,7 @@ import be.nabu.libs.types.api.ComplexContent;
 import be.nabu.libs.types.api.ComplexType;
 import be.nabu.libs.types.api.DefinedType;
 import be.nabu.libs.types.api.Element;
+import be.nabu.libs.types.api.SimpleType;
 import be.nabu.libs.types.base.ComplexElementImpl;
 import be.nabu.libs.types.base.SimpleElementImpl;
 import be.nabu.libs.types.base.ValueImpl;
@@ -51,6 +53,7 @@ import be.nabu.utils.excel.FileType;
 import be.nabu.utils.excel.MatrixUtils;
 import be.nabu.utils.excel.Template;
 import be.nabu.utils.excel.Template.Direction;
+import be.nabu.utils.excel.ValueParserImpl;
 
 @WebService
 public class Services {
@@ -149,10 +152,10 @@ public class Services {
 					cell = contentRow.getCell(i);
 					cellValue = evaluator.evaluate(cell);
 					switch(cellValue.getCellType()) {
-						case Cell.CELL_TYPE_BOOLEAN:
+						case BOOLEAN:
 							simpleType = Boolean.class;
 						break;
-						case Cell.CELL_TYPE_NUMERIC:
+						case NUMERIC:
 							if (DateUtil.isCellInternalDateFormatted(cell) || DateUtil.isCellDateFormatted(cell)) {
 								simpleType = Date.class;
 							}
@@ -219,12 +222,28 @@ public class Services {
 		if (trim == null) {
 			trim = true;
 		}
+		List<Element<?>> children = new ArrayList<Element<?>>(TypeUtils.getAllChildren((ComplexType) resolved));
 		ExcelParser excelParser = new ExcelParser(workbook);
 		Sheet sheet = excelParser.getSheet(sheetName, useRegex == null ? false : useRegex);
 		if (sheet == null) {
 			throw new IllegalArgumentException("Can not find sheet: " + sheetName);
 		}
-		List<List<Object>> matrix = excelParser.matrix(sheet);
+		List<List<Object>> matrix = excelParser.matrix(sheet, new ValueParserImpl() {
+			@Override
+			public CellType getCellType(int cellIndex, Cell cell, CellValue value) {
+				if (cellIndex < children.size()) {
+					Element<?> element = children.get(cellIndex);
+					if (element.getType() instanceof SimpleType) {
+						// make sure we force strings to be parsed as string rather than a double
+						Class<?> instanceClass = ((SimpleType<?>) element.getType()).getInstanceClass();
+						if (String.class.isAssignableFrom(instanceClass)) {
+							return CellType.STRING;
+						}
+					}
+				}
+				return super.getCellType(cellIndex, cell, value);
+			}
+		});
 		if (rotate != null && rotate) {
 			matrix = MatrixUtils.rotate(matrix);
 		}
@@ -235,7 +254,6 @@ public class Services {
 			excelParser.setMaxX(toRow);
 		}
 		List<Object> result = new ArrayList<Object>();
-		List<Element<?>> children = new ArrayList<Element<?>>(TypeUtils.getAllChildren((ComplexType) resolved));
 		for (int row = 0; row < matrix.size(); row++) {
 			if (fromRow != null && row < fromRow) {
 				continue;
