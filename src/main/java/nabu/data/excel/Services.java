@@ -228,7 +228,7 @@ public class Services {
 		if (sheet == null) {
 			throw new IllegalArgumentException("Can not find sheet: " + sheetName);
 		}
-		List<List<Object>> matrix = excelParser.matrix(sheet, new ValueParserImpl() {
+		ValueParserImpl valueParser = new ValueParserImpl() {
 			@Override
 			public CellType getCellType(int cellIndex, Cell cell, CellValue value) {
 				if (cellIndex < children.size()) {
@@ -243,7 +243,12 @@ public class Services {
 				}
 				return super.getCellType(cellIndex, cell, value);
 			}
-		});
+		};
+		// forcing a stringified version does not work, it will still format doubles with trailing ".0" or worse "1.5E7"
+		// however, by forcing big decimals, they _do_ have a clean stringification path and should be compatible with normal doubles
+		valueParser = new ValueParserImpl();
+		valueParser.setUseBigDecimals(true);
+		List<List<Object>> matrix = excelParser.matrix(sheet, valueParser);
 		if (rotate != null && rotate) {
 			matrix = MatrixUtils.rotate(matrix);
 		}
