@@ -32,6 +32,7 @@ import be.nabu.eai.api.NamingConvention;
 import be.nabu.eai.repository.EAIResourceRepository;
 import be.nabu.libs.property.api.Value;
 import be.nabu.libs.services.api.ExecutionContext;
+import be.nabu.libs.types.BaseTypeInstance;
 import be.nabu.libs.types.ComplexContentWrapperFactory;
 import be.nabu.libs.types.SimpleTypeWrapperFactory;
 import be.nabu.libs.types.TypeUtils;
@@ -39,11 +40,14 @@ import be.nabu.libs.types.api.ComplexContent;
 import be.nabu.libs.types.api.ComplexType;
 import be.nabu.libs.types.api.DefinedType;
 import be.nabu.libs.types.api.Element;
+import be.nabu.libs.types.api.KeyValuePair;
 import be.nabu.libs.types.api.SimpleType;
+import be.nabu.libs.types.api.TypeInstance;
 import be.nabu.libs.types.base.ComplexElementImpl;
 import be.nabu.libs.types.base.SimpleElementImpl;
 import be.nabu.libs.types.base.ValueImpl;
 import be.nabu.libs.types.binding.excel.ExcelBinding;
+import be.nabu.libs.types.java.BeanResolver;
 import be.nabu.libs.types.properties.AliasProperty;
 import be.nabu.libs.types.properties.LabelProperty;
 import be.nabu.libs.types.properties.MaxOccursProperty;
@@ -223,6 +227,20 @@ public class Services {
 			trim = true;
 		}
 		List<Element<?>> children = new ArrayList<Element<?>>(TypeUtils.getAllChildren((ComplexType) resolved));
+		// check if we have a key value pair list
+		Iterator<Element<?>> iterator = children.iterator();
+		TypeInstance keyValueInstance = new BaseTypeInstance(BeanResolver.getInstance().resolve(KeyValuePair.class));
+		Element<?> keyValueElement = null;
+		while (iterator.hasNext()) {
+			Element<?> child = iterator.next();
+			if (child.getType().isList(child.getProperties()) && TypeUtils.isSubset(new BaseTypeInstance(child.getType()), keyValueInstance)) {
+				keyValueElement = child;
+				// don't map normal values to it
+				iterator.remove();
+				break;
+			}
+		}
+			
 		ExcelParser excelParser = new ExcelParser(workbook);
 		Sheet sheet = excelParser.getSheet(sheetName, useRegex == null ? false : useRegex);
 		if (sheet == null) {
@@ -259,6 +277,7 @@ public class Services {
 			excelParser.setMaxX(toRow);
 		}
 		List<Object> result = new ArrayList<Object>();
+		List<String> headers = new ArrayList<String>();
 		for (int row = 0; row < matrix.size(); row++) {
 			if (fromRow != null && row < fromRow) {
 				continue;
@@ -267,10 +286,12 @@ public class Services {
 				break;
 			}
 			if (useHeaders != null && useHeaders && ((fromRow == null && row == 0) || (fromRow != null && row == fromRow))) {
-				if (validateHeaders != null && validateHeaders) {
-					int elementCounter = 0;
-					for (int column = 0; column < matrix.get(row).size(); column++) {
-						if (columnsToIgnore == null || !columnsToIgnore.contains(column)) {
+				int elementCounter = 0;
+				for (int column = 0; column < matrix.get(row).size(); column++) {
+					if (columnsToIgnore == null || !columnsToIgnore.contains(column)) {
+						// add it to the headers for dynamic behavior
+						headers.add(matrix.get(row).get(column) == null ? null : matrix.get(row).get(column).toString().trim());
+						if (validateHeaders != null && validateHeaders) {
 							// we ignore elements beyond the ones we can map, this could be empty cells or uninteresting data
 							if (elementCounter >= children.size()) {
 								break;
@@ -297,10 +318,34 @@ public class Services {
 			ComplexContent newInstance = ((ComplexType) resolved).newInstance();
 			boolean isEmptyRow = true;
 			int elementCounter = 0;
+			List<ComplexContent> keyValuePairs = keyValueElement == null ? null : new ArrayList<ComplexContent>();
 			for (int column = 0; column < matrix.get(row).size(); column++) {
 				if (columnsToIgnore == null || !columnsToIgnore.contains(column)) {
 					// we ignore elements beyond the ones we can map, this could be empty cells or uninteresting data
 					if (elementCounter >= children.size()) {
+						// if we have a key value element, add it there
+						if (keyValueElement != null) {
+							ComplexContent keyValuePair = ((ComplexType) keyValueElement.getType()).newInstance();
+							keyValuePair.set("key", headers.get(elementCounter));
+							Object value = matrix.get(row).get(column);
+							if (value instanceof String) {
+								// if we want to trim, we will save the trimmed version
+								if (trim) {
+									value = ((String) value).trim();
+									if (((String) value).isEmpty()) {
+										value = null;
+									}
+								}
+								// otherwise we won't
+								else if (((String) value).trim().isEmpty()) {
+									value = null;
+								}
+							}
+							keyValuePair.set("value", value);
+							keyValuePairs.add(keyValuePair);
+							elementCounter++;
+							continue;
+						}
 						break;
 					}
 					Element<?> element = children.get(elementCounter++);
@@ -328,6 +373,9 @@ public class Services {
 						isEmptyRow = false;
 					}
 				}
+			}
+			if (keyValueElement != null) {
+				newInstance.set(keyValueElement.getName(), keyValuePairs);
 			}
 			if (isEmptyRow && includeEmptyResults != null && includeEmptyResults) {
 				result.add(null);
