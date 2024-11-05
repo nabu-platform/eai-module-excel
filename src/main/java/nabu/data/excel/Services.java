@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -18,6 +19,7 @@ import javax.jws.WebResult;
 import javax.jws.WebService;
 import javax.validation.constraints.NotNull;
 
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.CellValue;
@@ -27,6 +29,7 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import be.nabu.eai.api.NamingConvention;
 import be.nabu.eai.repository.EAIResourceRepository;
@@ -53,6 +56,7 @@ import be.nabu.libs.types.properties.LabelProperty;
 import be.nabu.libs.types.properties.MaxOccursProperty;
 import be.nabu.libs.types.structure.Structure;
 import be.nabu.utils.excel.ExcelParser;
+import be.nabu.utils.excel.ExcelUtils;
 import be.nabu.utils.excel.FileType;
 import be.nabu.utils.excel.MatrixUtils;
 import be.nabu.utils.excel.Template;
@@ -212,6 +216,33 @@ public class Services {
 		return new ByteArrayInputStream(output.toByteArray());
 	}
 	
+	@WebResult(name = "workbook")
+	public Workbook newWorkbook(@WebParam(name = "fileType") FileType fileType) {
+		return fileType == FileType.XLSX ? new XSSFWorkbook() : new HSSFWorkbook();
+	}
+	
+	@WebResult(name = "stream")
+	public InputStream toStream(@WebParam(name = "workbook") Workbook workbook) throws IOException {
+		if (workbook == null) {
+			return null;
+		}
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		workbook.write(output);
+		return new ByteArrayInputStream(output.toByteArray());
+	}
+	
+	@WebResult(name = "workbook")
+	public Workbook toSheet(@WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "records") List<Object> objects, @WebParam(name = "useHeaders") Boolean useHeaders) {
+		if (objects == null || objects.isEmpty()) {
+			return workbook;
+		}
+		if (workbook == null) {
+			workbook = newWorkbook(FileType.XLSX);
+		}
+		ExcelUtils.write(workbook, toMatrix(objects, useHeaders != null && useHeaders), sheetName, null, TimeZone.getDefault());
+		return workbook;
+	}
+	
 	@WebResult(name = "results")
 	public List<Object> toObject(@NotNull @WebParam(name = "typeId") String typeId, @WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "useRegexForSheet") Boolean useRegex, @WebParam(name = "fromRow") Integer fromRow, @WebParam(name = "toRow") Integer toRow, @WebParam(name = "columnsToIgnore") List<Integer> columnsToIgnore, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders, @WebParam(name = "trim") Boolean trim) throws IOException, ParseException {
 		DefinedType resolved = executionContext.getServiceContext().getResolver(DefinedType.class).resolve(typeId);
@@ -219,6 +250,55 @@ public class Services {
 			throw new IllegalArgumentException("Could not resolve the complex type: " + typeId);
 		}
 		return toObject((ComplexType) resolved, workbook, sheetName, useRegex, fromRow, toRow, columnsToIgnore, rotate, includeEmptyResults, useHeaders, validateHeaders, trim);
+	}
+	
+	@SuppressWarnings("unchecked")
+	private static List<Object> toMatrix(List<Object> objects, boolean useHeaders) {
+		List<Object> rows = new ArrayList<Object>();
+		Collection<Element<?>> allChildren = null;
+		if (useHeaders) {
+			for (Object single : objects) {
+				if (single == null) {
+					continue;
+				}
+				else if (!(single instanceof ComplexContent)) {
+					single = ComplexContentWrapperFactory.getInstance().getWrapper().wrap(single);
+				}
+				if (single == null) {
+					throw new IllegalArgumentException("Could not wrap as complex content");
+				}
+				List<Object> row = new ArrayList<Object>();
+				if (allChildren == null) {
+					allChildren = TypeUtils.getAllChildren(((ComplexContent) single).getType());
+				}
+				for (Element<?> element : allChildren) {
+					Value<String> label = element.getProperty(LabelProperty.getInstance());
+					row.add(label != null ? label.getValue() : element.getName());
+				}
+				rows.add(row);
+				break;
+			}
+		}
+		for (Object single : objects) {
+			if (single == null) {
+				continue;
+			}
+			else if (!(single instanceof ComplexContent)) {
+				single = ComplexContentWrapperFactory.getInstance().getWrapper().wrap(single);
+			}
+			if (single == null) {
+				throw new IllegalArgumentException("Could not wrap as complex content");
+			}
+			List<Object> row = new ArrayList<Object>();
+			if (allChildren == null) {
+				allChildren = TypeUtils.getAllChildren(((ComplexContent) single).getType());
+			}
+			for (Element<?> element : allChildren) {
+				row.add(((ComplexContent) single).get(element.getName()));
+			}
+			rows.add(row);
+		}
+		return rows;
 	}
 	
 	private List<Object> toObject(ComplexType resolved, @WebParam(name = "workbook") Workbook workbook, @NotNull @WebParam(name = "sheet") String sheetName, @WebParam(name = "useRegexForSheet") Boolean useRegex, @WebParam(name = "fromRow") Integer fromRow, @WebParam(name = "toRow") Integer toRow, @WebParam(name = "columnsToIgnore") List<Integer> columnsToIgnore, @WebParam(name = "rotate") Boolean rotate, @WebParam(name = "includeEmptyResults") Boolean includeEmptyResults, @WebParam(name = "useHeaders") Boolean useHeaders, @WebParam(name = "validateHeaders") Boolean validateHeaders, @WebParam(name = "trim") Boolean trim) throws IOException, ParseException {
@@ -294,7 +374,7 @@ public class Services {
 						if (validateHeaders != null && validateHeaders) {
 							// we ignore elements beyond the ones we can map, this could be empty cells or uninteresting data
 							if (elementCounter >= children.size()) {
-								break;
+								continue;
 							}
 							Element<?> element = children.get(elementCounter++);
 							Value<String> alias = element.getProperty(AliasProperty.getInstance());
@@ -344,6 +424,7 @@ public class Services {
 							keyValuePair.set("value", value);
 							keyValuePairs.add(keyValuePair);
 							elementCounter++;
+							isEmptyRow = false;
 							continue;
 						}
 						break;
